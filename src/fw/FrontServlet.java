@@ -19,8 +19,7 @@ public class FrontServlet extends HttpServlet {
             out.println("<html>");
             out.println("<head><title>FrontServlet</title></head>");
             out.println("<body>");
-            out.println("<h1>Réponse depuis FrontServlet !</h1>");
-            out.println("<p>Méthode HTTP utilisée : " + req.getMethod() + "</p>");
+            out.println("<h1>L'url point vers FrontServlet !</h1>");
             out.println("<p>URL : " + req.getRequestURL() + "</p>");
             out.println("</body>");
             out.println("</html>");
