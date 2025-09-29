@@ -1,9 +1,17 @@
-rm -rf build mon-framework.jar
+#!/bin/bash
+# -*- coding: UTF-8 -*-
 
+# 🔄 Nettoyage des anciens fichiers
+rm -rf build
+rm -f myframework.jar
+
+# 📁 Création du dossier build
 mkdir -p build
 
-javac -d build -cp lib/jakarta.servlet-api-6.0.0.jar src/framework/FrontServlet.java
+# 🧱 Compilation
+javac -encoding UTF-8 -d build -cp lib/javax.servlet-api-4.0.1.jar src/fw/FrontServlet.java
 
-jar cvf my-framework.jar -C build .
+# 📦 Création du JAR
+jar cvf myframework.jar -C build .
 
-echo "✅ mon-framework.jar généré avec succès !"
+echo "✅ myframework.jar généré avec succès !"
