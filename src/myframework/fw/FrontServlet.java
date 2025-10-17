@@ -1,4 +1,4 @@
-package fw;
+package myframework.fw;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.ServletException;
