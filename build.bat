@@ -10,7 +10,8 @@ REM Création du dossier build
 mkdir build
 
 REM Compilation
-javac -encoding UTF-8 -d build -cp lib\jakarta.servlet-api-6.0.0.jar src\fw\FrontServlet.java
+javac -encoding UTF-8 -d build -cp lib\jakarta.servlet-api-6.0.0.jar src\myframework\fw\FrontServlet.java
+javac -encoding UTF-8 -d build -cp lib\jakarta.servlet-api-6.0.0.jar src\myframework\annotation\MyMapping.java
 
 REM Création du JAR
 jar cvf myframework.jar -C build .
