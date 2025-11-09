@@ -128,6 +128,25 @@ public class Fonction {
         }
     }
 
+    public static Set<Class<?>> scanFromDirectory(File rootDir, String basePackage, Class<?> annotationClass) {
+        Set<Class<?>> annotatedClasses = new HashSet<>();
+        File baseDir = new File(rootDir, basePackage.replace('.', File.separatorChar));
+
+        if (!baseDir.exists()) {
+            System.err.println("⚠️ Package introuvable : " + baseDir.getAbsolutePath());
+            return annotatedClasses;
+        }
+
+        try{
+            scanDirectory(rootDir, baseDir, (Class) annotationClass, annotatedClasses);
+        } catch (Exception e){
+            
+        }
+        
+        return annotatedClasses;
+    }
+
+
     private static void scanJarFile(File jarFile, Class<? extends Annotation> annotation, Set<Class<?>> annotatedClasses) {
         try (JarFile jar = new JarFile(jarFile)) {
             Enumeration<JarEntry> entries = jar.entries();
