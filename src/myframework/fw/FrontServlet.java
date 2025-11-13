@@ -7,6 +7,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import myframework.utils.Fonction;
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import myframework.fw.ModelView;
 
 import java.io.File;
 import java.io.IOException;
@@ -104,6 +110,17 @@ public class FrontServlet extends HttpServlet {
                     out.println("<h2>✅ Méthode exécutée</h2>");
                     out.println("<p>" + result + "</p>");
                     out.println("</body></html>");
+                } 
+                else if (result instanceof ModelView mv) {
+                    System.out.println("🧭 Redirection vers la page : " + mv.getView());
+                    // Injecter les attributs dans la requête
+                    if (mv.getData() != null) {
+                        for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                            req.setAttribute(entry.getKey(), entry.getValue());
+                        }
+                    }
+                    RequestDispatcher dispatcher = req.getRequestDispatcher("/" + mv.getView());
+                    dispatcher.forward(req, resp);
                 } else {
                     // Sinon, on affiche les infos de debug
                     out.println("<html><body>");
