@@ -114,6 +114,11 @@ public class FrontServlet extends HttpServlet {
                 else if (result instanceof ModelView mv) {
                     System.out.println("🧭 Redirection vers la page : " + mv.getView());
                     // Injecter les attributs dans la requête
+                    if (mv.getData() != null) {
+                        for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
+                            req.setAttribute(entry.getKey(), entry.getValue());
+                        }
+                    }
                     RequestDispatcher dispatcher = req.getRequestDispatcher("/" + mv.getView());
                     dispatcher.forward(req, resp);
                 } else {
