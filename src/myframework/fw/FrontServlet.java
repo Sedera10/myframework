@@ -99,14 +99,22 @@ public class FrontServlet extends HttpServlet {
                 Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
                 Object result = method.invoke(controllerInstance);
 
-                out.println("<html><body>");
-                out.println("<h2>✅ Route trouvée et exécutée</h2>");
-                out.println("<p><b>Classe :</b> " + controllerClass.getName() + "</p>");
-                out.println("<p><b>Méthode :</b> " + method.getName() + "</p>");
-                out.println("<p><b>URL :</b> " + path + "</p>");
-                if (result != null)
-                    out.println("<p><b>Résultat :</b> " + result + "</p>");
-                out.println("</body></html>");
+                if (result instanceof String) {
+                    out.println("<html><body>");
+                    out.println("<h2>✅ Méthode exécutée</h2>");
+                    out.println("<p>" + result + "</p>");
+                    out.println("</body></html>");
+                } else {
+                    // Sinon, on affiche les infos de debug
+                    out.println("<html><body>");
+                    out.println("<h2>✅ Route trouvée et exécutée (dans log)</h2>");
+                    out.println("<p><b>Classe :</b> " + controllerClass.getName() + "</p>");
+                    out.println("<p><b>Méthode :</b> " + method.getName() + "</p>");
+                    out.println("<p><b>URL :</b> " + path + "</p>");
+                    out.println("<p>(aucun contenu retourné)</p>");
+                    out.println("</body></html>");
+                }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
