@@ -7,6 +7,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import myframework.utils.Fonction;
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.ServletException;
+import myframework.fw.ModelView;
 
 import java.io.File;
 import java.io.IOException;
@@ -99,14 +105,28 @@ public class FrontServlet extends HttpServlet {
                 Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
                 Object result = method.invoke(controllerInstance);
 
-                out.println("<html><body>");
-                out.println("<h2>✅ Route trouvée et exécutée</h2>");
-                out.println("<p><b>Classe :</b> " + controllerClass.getName() + "</p>");
-                out.println("<p><b>Méthode :</b> " + method.getName() + "</p>");
-                out.println("<p><b>URL :</b> " + path + "</p>");
-                if (result != null)
-                    out.println("<p><b>Résultat :</b> " + result + "</p>");
-                out.println("</body></html>");
+                if (result instanceof String) {
+                    out.println("<html><body>");
+                    out.println("<h2>✅ Méthode exécutée</h2>");
+                    out.println("<p>" + result + "</p>");
+                    out.println("</body></html>");
+                } 
+                else if (result instanceof ModelView mv) {
+                    System.out.println("🧭 Redirection vers la page : " + mv.getView());
+                    // Injecter les attributs dans la requête
+                    RequestDispatcher dispatcher = req.getRequestDispatcher("/" + mv.getView());
+                    dispatcher.forward(req, resp);
+                } else {
+                    // Sinon, on affiche les infos de debug
+                    out.println("<html><body>");
+                    out.println("<h2>✅ Route trouvée et exécutée (dans log)</h2>");
+                    out.println("<p><b>Classe :</b> " + controllerClass.getName() + "</p>");
+                    out.println("<p><b>Méthode :</b> " + method.getName() + "</p>");
+                    out.println("<p><b>URL :</b> " + path + "</p>");
+                    out.println("<p>(aucun contenu retourné)</p>");
+                    out.println("</body></html>");
+                }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
