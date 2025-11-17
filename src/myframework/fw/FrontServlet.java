@@ -19,6 +19,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.lang.reflect.Parameter;
 
 public class FrontServlet extends HttpServlet {
 
@@ -145,17 +146,30 @@ public class FrontServlet extends HttpServlet {
 
             Object result;
 
-            if (pathParams != null && method.getParameterCount() == 1) {
-                String val = pathParams.values().iterator().next();
-                Class<?> type = method.getParameterTypes()[0];
+            if (pathParams != null) {
+                Parameter[] params = method.getParameters();
+                // Vérifier que chaque {variable} correspond à un paramètre du même nom
+                Object[] args = new Object[params.length];
+                int index = 0;
+                for (Parameter p : params) {
+                    String paramName = p.getName();
+                    if (!pathParams.containsKey(paramName)) {
+                        throw new IllegalArgumentException(
+                                "Le paramètre '" + paramName + "' ne correspond pas au pattern de l'URL."
+                        );
+                    }
+                    String rawValue = pathParams.get(paramName);
+                    // Conversion en bon type
+                    Object value =
+                            (p.getType() == int.class || p.getType() == Integer.class) ? Integer.parseInt(rawValue)
+                            : (p.getType() == long.class || p.getType() == Long.class) ? Long.parseLong(rawValue)
+                            : rawValue;
 
-                Object converted =
-                        (type == int.class || type == Integer.class) ? Integer.parseInt(val)
-                        : (type == long.class || type == Long.class) ? Long.parseLong(val)
-                        : val;
-
-                result = method.invoke(controller, converted);
-            } else {
+                    args[index++] = value;
+                }
+                result = method.invoke(controller, args);
+            }
+            else {
                 result = method.invoke(controller);
             }
 
