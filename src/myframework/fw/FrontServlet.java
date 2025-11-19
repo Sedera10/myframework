@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
+import myframework.annotation.RequestParam;
 import myframework.fw.ModelView;
 import myframework.utils.Fonction;
 
@@ -19,7 +20,6 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import java.lang.reflect.Parameter;
 
 public class FrontServlet extends HttpServlet {
 
@@ -142,49 +142,63 @@ public class FrontServlet extends HttpServlet {
         resp.setContentType("text/html;charset=UTF-8");
 
         try (PrintWriter out = resp.getWriter()) {
+
             Object controller = controllerClass.getDeclaredConstructor().newInstance();
 
-            Object result;
+            // --- Préparation des arguments ---
+            Object[] args = new Object[method.getParameterCount()];
+            Class<?>[] types = method.getParameterTypes();
+            java.lang.reflect.Parameter[] params = method.getParameters();
 
-            if (pathParams != null) {
-                Parameter[] params = method.getParameters();
-                // Vérifier que chaque {variable} correspond à un paramètre du même nom
-                Object[] args = new Object[params.length];
-                int index = 0;
-                for (Parameter p : params) {
-                    String paramName = p.getName();
-                    if (!pathParams.containsKey(paramName)) {
-                        throw new IllegalArgumentException(
-                                "Le paramètre '" + paramName + "' ne correspond pas au pattern de l'URL."
-                        );
+            for (int i = 0; i < params.length; i++) {
+
+                // 1) Vérifier si c'est un RequestParam
+                if (params[i].isAnnotationPresent(RequestParam.class)) {
+
+                    var ann = params[i].getAnnotation(RequestParam.class);
+                    String name = ann.value();
+                    String value = req.getParameter(name);
+
+                    // obligatoire et manquant = erreur
+                    if (value == null && ann.required()) {
+                        throw new RuntimeException("Missing required parameter: " + name);
                     }
-                    String rawValue = pathParams.get(paramName);
-                    // Conversion en bon type
-                    Object value =
-                            (p.getType() == int.class || p.getType() == Integer.class) ? Integer.parseInt(rawValue)
-                            : (p.getType() == long.class || p.getType() == Long.class) ? Long.parseLong(rawValue)
-                            : rawValue;
 
-                    args[index++] = value;
+                    args[i] = convertValue(value, types[i]);
+                    continue;
                 }
-                result = method.invoke(controller, args);
-            }
-            else {
-                result = method.invoke(controller);
+
+                // 2) Sinon, essayer de remplir depuis les pathParams
+                if (pathParams != null) {
+                    String paramName = params[i].getName(); // nécessite compilation avec -parameters
+                    if (pathParams.containsKey(paramName)) {
+                        args[i] = convertValue(pathParams.get(paramName), types[i]);
+                        continue;
+                    }
+                }
+
+                // 3) Sinon laisser null si objet, sinon erreur pour type primitif
+                if (types[i].isPrimitive()) {
+                    throw new RuntimeException(
+                            "Paramètre primitif non fourni : " + params[i].getName());
+                }
+                args[i] = null;
             }
 
+            // --- Appel de la méthode ---
+            Object result = method.invoke(controller, args);
+
+            // --- Gestion des retours ---
             if (result instanceof String str) {
                 out.println("<html><body>");
-                out.println("<h2>✅ Méthode exécutée</h2>");
+                out.println("<h2>Résultat</h2>");
                 out.println("<p>" + str + "</p>");
                 out.println("</body></html>");
             }
             else if (result instanceof ModelView mv) {
-
                 for (Map.Entry<String, Object> e : mv.getData().entrySet()) {
                     req.setAttribute(e.getKey(), e.getValue());
                 }
-
                 RequestDispatcher rd = req.getRequestDispatcher("/" + mv.getView());
                 rd.forward(req, resp);
             }
@@ -203,4 +217,16 @@ public class FrontServlet extends HttpServlet {
             resp.sendError(500, "Erreur interne : " + e.getMessage());
         }
     }
+
+    private Object convertValue(String value, Class<?> type) {
+        if (value == null) return null;
+
+        if (type == int.class || type == Integer.class) return Integer.parseInt(value);
+        if (type == long.class || type == Long.class) return Long.parseLong(value);
+        if (type == double.class || type == Double.class) return Double.parseDouble(value);
+        if (type == float.class || type == Float.class) return Float.parseFloat(value);
+
+        return value; // String par défaut
+    }
+
 }
