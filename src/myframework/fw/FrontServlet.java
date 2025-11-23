@@ -157,9 +157,17 @@ public class FrontServlet extends HttpServlet {
 
                     var ann = params[i].getAnnotation(RequestParam.class);
                     String name = ann.value();
+
+                    // --- NOUVEAU : priorité au path si même nom ---
+                    if (pathParams != null && pathParams.containsKey(name)) {
+                        args[i] = convertValue(pathParams.get(name), types[i]);
+                        continue;
+                    }
+
+                    // --- Sinon on prend dans les paramètres HTTP ---
                     String value = req.getParameter(name);
 
-                    // obligatoire et manquant = erreur
+                    // obligatoire + manquant → erreur
                     if (value == null && ann.required()) {
                         throw new RuntimeException("Missing required parameter: " + name);
                     }
@@ -171,19 +179,21 @@ public class FrontServlet extends HttpServlet {
                 // 2) Sinon, essayer de remplir depuis les pathParams
                 if (pathParams != null) {
                     String paramName = params[i].getName(); // nécessite compilation avec -parameters
+
                     if (pathParams.containsKey(paramName)) {
                         args[i] = convertValue(pathParams.get(paramName), types[i]);
                         continue;
                     }
                 }
 
-                // 3) Sinon laisser null si objet, sinon erreur pour type primitif
+                // 3) Sinon : laisser null si objet, erreur si primitif
                 if (types[i].isPrimitive()) {
                     throw new RuntimeException(
                             "Paramètre primitif non fourni : " + params[i].getName());
                 }
                 args[i] = null;
             }
+
 
             // --- Appel de la méthode ---
             Object result = method.invoke(controller, args);
