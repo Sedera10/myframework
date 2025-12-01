@@ -5,9 +5,6 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.annotation.ElementType;
 
-
-@Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface MyMapping {
-   String value() default "";
-}
+@Target(ElementType.METHOD)
+public @interface GET {}

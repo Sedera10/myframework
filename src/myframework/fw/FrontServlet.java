@@ -8,7 +8,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
 import myframework.annotation.RequestParam;
+import myframework.annotation.GET;
+import myframework.annotation.POST;
 import myframework.fw.ModelView;
+import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
 
 import jakarta.servlet.RequestDispatcher;
@@ -23,65 +26,49 @@ import java.util.Set;
 
 public class FrontServlet extends HttpServlet {
 
-    // Routes statiques : /bonjour
-    private final Map<String, Method> staticRoutes = new HashMap<>();
-    private final Map<String, Class<?>> staticControllers = new HashMap<>();
+    private final Map<String, ClasseMethod> staticRoutes = new HashMap<>();
+    private final Map<String, ClasseMethod> dynamicRoutes = new HashMap<>();
 
-    // Routes dynamiques : REGEX --> méthode
-    private final Map<String, Method> dynamicRoutes = new HashMap<>();
-    private final Map<String, Class<?>> dynamicControllers = new HashMap<>();
-
+    // premier scan au demarrage
     @Override
     public void init() throws ServletException {
         super.init();
         System.out.println(" Initialisation du FrontServlet...");
-
         try {
             String classesPath = getServletContext().getRealPath("/WEB-INF/classes");
             File classesDir = new File(classesPath);
-
             Set<Class<?>> controllers = Fonction.scanFromDirectory(
                     classesDir, "controller", MyController.class);
 
-            System.out.println("=== CONTROLLERS ===");
-            for (Class<?> c : controllers) System.out.println(" -> " + c.getName());
-
-            System.out.println("\n=== ROUTES ===");
-
             for (Class<?> controller : controllers) {
-
                 for (Method method : controller.getDeclaredMethods()) {
                     if (!method.isAnnotationPresent(MyMapping.class)) continue;
 
-                    MyMapping mapping = method.getAnnotation(MyMapping.class);
+                    String pattern = method.getAnnotation(MyMapping.class).value();
 
-                    // ----- ROUTE STATIQUE -----
-                    if (!mapping.url().isEmpty()) {
-                        staticRoutes.put(mapping.url(), method);
-                        staticControllers.put(mapping.url(), controller);
-                        System.out.println(" + Route statique : " + mapping.url());
-                    }
+                    String httpMethod = "GET"; // valeur par défaut
+                    if (method.isAnnotationPresent(POST.class)) httpMethod = "POST";
+                    if (method.isAnnotationPresent(GET.class))  httpMethod = "GET";
 
-                    // ----- ROUTE DYNAMIQUE -----
-                    if (!mapping.path().isEmpty()) {
-                        String pattern = mapping.path(); // ex: /etudiant/{id}
+                    ClasseMethod cm = new ClasseMethod(controller, method, httpMethod);
+
+                    // en cas de route dynamique
+                    if (pattern.contains("{")) {
                         String regex = "^" + pattern.replaceAll("\\{[^/]+}", "([^/]+)") + "$";
-
-                        dynamicRoutes.put(regex, method);
-                        dynamicControllers.put(regex, controller);
-
-                        System.out.println(" + Route dynamique : " + pattern + " | REGEX=" + regex);
+                        dynamicRoutes.put(regex, cm);
+                        System.out.println(" + Route dynamique : " + pattern + " → " + regex);
+                    }
+                    // en cas de route statique
+                    else {
+                        staticRoutes.put(pattern, cm);
+                        System.out.println(" + Route statique : " + pattern);
                     }
                 }
             }
-
-            System.out.println("\n✔ Initialisation terminée");
-
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-
 
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp)
@@ -90,33 +77,24 @@ public class FrontServlet extends HttpServlet {
         handleRequest(req, resp);
     }
 
+    // Matcher les routes
     private void handleRequest(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        
-        String path = req.getRequestURI().substring(req.getContextPath().length());
 
-        // 1) Route statique ?
+        String path = req.getRequestURI().substring(req.getContextPath().length());
         if (staticRoutes.containsKey(path)) {
-            invoke(req, resp, staticControllers.get(path), staticRoutes.get(path), null, path);
+            invoke(req, resp, staticRoutes.get(path), null, path);
             return;
         }
 
-        // 2) Route dynamique ?
         for (String regex : dynamicRoutes.keySet()) {
             if (path.matches(regex)) {
-
-                Class<?> ctrlClass = dynamicControllers.get(regex);
-                Method method = dynamicRoutes.get(regex);
-
-                // Extraire les valeurs dynamiques
-                String[] routeParts = regex.replace("^", "").replace("$", "").split("/");
-                String[] pathParts = path.split("/");
-
+                ClasseMethod cm = dynamicRoutes.get(regex);
+                Method method = cm.getMethod();
                 Map<String, String> params = new HashMap<>();
-
-                String originalPattern = method.getAnnotation(MyMapping.class).path();
+                String originalPattern = method.getAnnotation(MyMapping.class).value();
                 String[] patternParts = originalPattern.split("/");
-
+                String[] pathParts = path.split("/");
                 for (int i = 0; i < patternParts.length; i++) {
                     if (patternParts[i].startsWith("{")) {
                         String key = patternParts[i].substring(1, patternParts[i].length() - 1);
@@ -124,42 +102,43 @@ public class FrontServlet extends HttpServlet {
                     }
                 }
 
-                invoke(req, resp, ctrlClass, method, params, path);
+                invoke(req, resp, cm, params, path);
                 return;
             }
         }
 
-        // 3) Route introuvable
+        // rien trouvé
         resp.sendError(404, "Route introuvable : " + path);
     }
 
-
+    // execution de la méthode
     private void invoke(HttpServletRequest req, HttpServletResponse resp,
-                        Class<?> controllerClass, Method method,
-                        Map<String, String> pathParams, String path)
+                        ClasseMethod cm, Map<String, String> pathParams, String path)
             throws IOException, ServletException {
 
-        resp.setContentType("text/html;charset=UTF-8");
+        String expected = cm.getHttpMethod();
+        String received = req.getMethod();
 
+        if (!expected.equalsIgnoreCase(received)) {
+            resp.sendError(405,
+                    "Méthode " + expected + " requise pour : " + path);
+            return;
+        }
+
+        Method method = cm.getMethod();
+        Class<?> controllerClass = cm.getClazz();
         try (PrintWriter out = resp.getWriter()) {
-
             Object controller = controllerClass.getDeclaredConstructor().newInstance();
-
-            // --- Préparation des arguments ---
             Object[] args = new Object[method.getParameterCount()];
             Class<?>[] types = method.getParameterTypes();
             java.lang.reflect.Parameter[] params = method.getParameters();
 
             for (int i = 0; i < params.length; i++) {
-
-                // 1) Vérifier si c'est un RequestParam
                 if (params[i].isAnnotationPresent(RequestParam.class)) {
-
-                    var ann = params[i].getAnnotation(RequestParam.class);
+                    RequestParam ann = params[i].getAnnotation(RequestParam.class);
                     String name = ann.value();
                     String value = req.getParameter(name);
 
-                    // obligatoire et manquant = erreur
                     if (value == null && ann.required()) {
                         throw new RuntimeException("Missing required parameter: " + name);
                     }
@@ -168,27 +147,22 @@ public class FrontServlet extends HttpServlet {
                     continue;
                 }
 
-                // 2) Sinon, essayer de remplir depuis les pathParams
                 if (pathParams != null) {
-                    String paramName = params[i].getName(); // nécessite compilation avec -parameters
+                    String paramName = params[i].getName(); 
                     if (pathParams.containsKey(paramName)) {
                         args[i] = convertValue(pathParams.get(paramName), types[i]);
                         continue;
                     }
                 }
 
-                // 3) Sinon laisser null si objet, sinon erreur pour type primitif
                 if (types[i].isPrimitive()) {
-                    throw new RuntimeException(
-                            "Paramètre primitif non fourni : " + params[i].getName());
+                    throw new RuntimeException("Paramètre primitif non fourni : " + params[i].getName());
                 }
                 args[i] = null;
             }
-
-            // --- Appel de la méthode ---
+            // appel methode
             Object result = method.invoke(controller, args);
 
-            // --- Gestion des retours ---
             if (result instanceof String str) {
                 out.println("<html><body>");
                 out.println("<h2>Résultat</h2>");
@@ -204,11 +178,10 @@ public class FrontServlet extends HttpServlet {
             }
             else {
                 out.println("<html><body>");
-                out.println("<h2>✅ Route exécutée</h2>");
-                out.println("<p><b>Classe :</b> " + controllerClass.getName() + "</p>");
-                out.println("<p><b>Méthode :</b> " + method.getName() + "</p>");
-                out.println("<p><b>URL :</b> " + path + "</p>");
-                out.println("<p>(aucun contenu retourné)</p>");
+                out.println("<h2>Route exécutée</h2>");
+                out.println("<p>Classe : " + controllerClass.getName() + "</p>");
+                out.println("<p>Méthode : " + method.getName() + "</p>");
+                out.println("<p>URL : " + path + "</p>");
                 out.println("</body></html>");
             }
 
@@ -218,6 +191,7 @@ public class FrontServlet extends HttpServlet {
         }
     }
 
+    // Transtypation
     private Object convertValue(String value, Class<?> type) {
         if (value == null) return null;
 
@@ -226,7 +200,6 @@ public class FrontServlet extends HttpServlet {
         if (type == double.class || type == Double.class) return Double.parseDouble(value);
         if (type == float.class || type == Float.class) return Float.parseFloat(value);
 
-        return value; // String par défaut
+        return value;
     }
-
 }
