@@ -23,6 +23,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 public class FrontServlet extends HttpServlet {
 
@@ -134,6 +135,12 @@ public class FrontServlet extends HttpServlet {
             java.lang.reflect.Parameter[] params = method.getParameters();
 
             for (int i = 0; i < params.length; i++) {
+                if (Map.class.isAssignableFrom(types[i])) {
+                    Object mapValue = processMapParameter(req, types[i], params[i]);
+                    args[i] = mapValue;
+                    continue;
+                }
+
                 if (params[i].isAnnotationPresent(RequestParam.class)) {
                     RequestParam ann = params[i].getAnnotation(RequestParam.class);
                     String name = ann.value();
@@ -210,4 +217,31 @@ public class FrontServlet extends HttpServlet {
 
         return value;
     }
+
+    // Sprint 8 
+    private Object processMapParameter(HttpServletRequest req,
+                                   Class<?> type,
+                                   java.lang.reflect.Parameter param) {
+
+        String genericType = param.getParameterizedType().getTypeName();
+        if (!genericType.equals("java.util.Map<java.lang.String, java.lang.Object>")) {
+            if (type.isPrimitive()) {
+                throw new RuntimeException("Impossible d'injecter un Map non supporté dans un type primitif.");
+            }
+            return null;
+        }
+        Map<String, Object> formMap = new HashMap<>();
+        Map<String, String[]> parameterMap = req.getParameterMap();
+        for (String key : parameterMap.keySet()) {
+            String[] values = parameterMap.get(key);
+            if (values.length == 1) {
+                formMap.put(key, values[0]); 
+            } else {
+                formMap.put(key, List.of(values)); // checkbox ou valeur multiple
+            }
+        }
+
+        return formMap;
+    }
+
 }
