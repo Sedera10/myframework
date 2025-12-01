@@ -13,6 +13,7 @@ import myframework.annotation.POST;
 import myframework.fw.ModelView;
 import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
+import myframework.utils.DataBinder;
 
 import jakarta.servlet.RequestDispatcher;
 
@@ -20,9 +21,11 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 public class FrontServlet extends HttpServlet {
 
@@ -134,6 +137,12 @@ public class FrontServlet extends HttpServlet {
             java.lang.reflect.Parameter[] params = method.getParameters();
 
             for (int i = 0; i < params.length; i++) {
+                if (Map.class.isAssignableFrom(types[i])) {
+                    Object mapValue = processMapParameter(req, types[i], params[i]);
+                    args[i] = mapValue;
+                    continue;
+                }
+
                 if (params[i].isAnnotationPresent(RequestParam.class)) {
                     RequestParam ann = params[i].getAnnotation(RequestParam.class);
                     String name = ann.value();
@@ -166,6 +175,11 @@ public class FrontServlet extends HttpServlet {
                 if (types[i].isPrimitive()) {
                     throw new RuntimeException("Paramètre primitif non fourni : " + params[i].getName());
                 }
+                if (!types[i].isPrimitive() && !types[i].isEnum() && !types[i].getName().startsWith("java.") && !Map.class.isAssignableFrom(types[i])) {
+                    args[i] = DataBinder.bindFromRequest(types[i], req);
+                    continue;
+                }
+
                 args[i] = null;
             }
             // appel methode
@@ -207,7 +221,54 @@ public class FrontServlet extends HttpServlet {
         if (type == long.class || type == Long.class) return Long.parseLong(value);
         if (type == double.class || type == Double.class) return Double.parseDouble(value);
         if (type == float.class || type == Float.class) return Float.parseFloat(value);
+        if (type == java.util.Date.class) return java.sql.Date.valueOf(value);
+        if (type == boolean.class || type == Boolean.class) return Boolean.parseBoolean(value);
 
         return value;
     }
+
+    // Sprint 8 
+    private Object processMapParameter(HttpServletRequest req,
+                                   Class<?> type,
+                                   java.lang.reflect.Parameter param) {
+
+        String genericType = param.getParameterizedType().getTypeName();
+        if (!genericType.equals("java.util.Map<java.lang.String, java.lang.Object>")) {
+            if (type.isPrimitive()) {
+                throw new RuntimeException("Impossible d'injecter un Map non supporté dans un type primitif.");
+            }
+            return null;
+        }
+        Map<String, Object> formMap = new HashMap<>();
+        Map<String, String[]> parameterMap = req.getParameterMap();
+        for (String key : parameterMap.keySet()) {
+            String[] values = parameterMap.get(key);
+            if (values.length == 1) {
+                formMap.put(key, values[0]); 
+            } else {
+                formMap.put(key, List.of(values)); // checkbox ou valeur multiple
+            }
+        }
+
+        return formMap;
+    }
+
+    // Sprint 8 bis 
+    private Object bindFromRequest(Class<?> clazz, HttpServletRequest req) throws Exception {
+        Object obj = clazz.getDeclaredConstructor().newInstance();
+        Field[] fields = clazz.getDeclaredFields();
+        for (Field f : fields) {
+            String name = f.getName();
+            String raw = req.getParameter(name);
+            if (raw == null) continue;
+
+            f.setAccessible(true);
+
+            Object value = convertValue(raw, f.getType());
+            f.set(obj, value);
+        }
+        return obj;
+    }
+
+
 }
