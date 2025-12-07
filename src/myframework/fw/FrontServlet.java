@@ -13,6 +13,7 @@ import myframework.annotation.POST;
 import myframework.fw.ModelView;
 import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
+import myframework.utils.DataBinder;
 
 import jakarta.servlet.RequestDispatcher;
 
@@ -20,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -173,6 +175,11 @@ public class FrontServlet extends HttpServlet {
                 if (types[i].isPrimitive()) {
                     throw new RuntimeException("Paramètre primitif non fourni : " + params[i].getName());
                 }
+                if (!types[i].isPrimitive() && !types[i].isEnum() && !types[i].getName().startsWith("java.") && !Map.class.isAssignableFrom(types[i])) {
+                    args[i] = DataBinder.bindFromRequest(types[i], req);
+                    continue;
+                }
+
                 args[i] = null;
             }
             // appel methode
@@ -214,6 +221,8 @@ public class FrontServlet extends HttpServlet {
         if (type == long.class || type == Long.class) return Long.parseLong(value);
         if (type == double.class || type == Double.class) return Double.parseDouble(value);
         if (type == float.class || type == Float.class) return Float.parseFloat(value);
+        if (type == java.util.Date.class) return java.sql.Date.valueOf(value);
+        if (type == boolean.class || type == Boolean.class) return Boolean.parseBoolean(value);
 
         return value;
     }
@@ -243,5 +252,23 @@ public class FrontServlet extends HttpServlet {
 
         return formMap;
     }
+
+    // Sprint 8 bis 
+    private Object bindFromRequest(Class<?> clazz, HttpServletRequest req) throws Exception {
+        Object obj = clazz.getDeclaredConstructor().newInstance();
+        Field[] fields = clazz.getDeclaredFields();
+        for (Field f : fields) {
+            String name = f.getName();
+            String raw = req.getParameter(name);
+            if (raw == null) continue;
+
+            f.setAccessible(true);
+
+            Object value = convertValue(raw, f.getType());
+            f.set(obj, value);
+        }
+        return obj;
+    }
+
 
 }
