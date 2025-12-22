@@ -10,10 +10,13 @@ import myframework.annotation.MyMapping;
 import myframework.annotation.RequestParam;
 import myframework.annotation.GET;
 import myframework.annotation.POST;
+import myframework.annotation.Json;
 import myframework.fw.ModelView;
 import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
 import myframework.utils.DataBinder;
+import myframework.utils.JsonResponse;
+
 
 import jakarta.servlet.RequestDispatcher;
 
@@ -130,12 +133,15 @@ public class FrontServlet extends HttpServlet {
 
         Method method = cm.getMethod();
         Class<?> controllerClass = cm.getClazz();
-        try (PrintWriter out = resp.getWriter()) {
+        Object result = null;
+        Exception capturedError = null;
+        PrintWriter out = resp.getWriter();
+        try{
             Object controller = controllerClass.getDeclaredConstructor().newInstance();
             Object[] args = new Object[method.getParameterCount()];
             Class<?>[] types = method.getParameterTypes();
             java.lang.reflect.Parameter[] params = method.getParameters();
-
+            // Traitement des paramètres
             for (int i = 0; i < params.length; i++) {
                 if (Map.class.isAssignableFrom(types[i])) {
                     Object mapValue = processMapParameter(req, types[i], params[i]);
@@ -183,8 +189,22 @@ public class FrontServlet extends HttpServlet {
                 args[i] = null;
             }
             // appel methode
-            Object result = method.invoke(controller, args);
-
+            try {
+                result = method.invoke(controller, args);
+            } catch (Exception e) {
+                capturedError = e;
+            }
+            // Gestion JSON
+            if (method.isAnnotationPresent(Json.class)) {
+                JsonResponse json = handleJsonResponse(result, capturedError);
+                resp.setContentType("application/json");
+                resp.setCharacterEncoding("UTF-8");
+                com.google.gson.Gson gson = new com.google.gson.Gson();
+                out.print(gson.toJson(json));
+                return;
+            }
+            if (capturedError != null) throw capturedError;
+            // Comportement normal
             if (result instanceof String str) {
                 out.println("<html><body>");
                 out.println("<h2>Résultat</h2>");
@@ -268,6 +288,31 @@ public class FrontServlet extends HttpServlet {
             f.set(obj, value);
         }
         return obj;
+    }
+
+    // Sprint 9
+    private JsonResponse handleJsonResponse(Object data, Exception error) {
+        JsonResponse response = new JsonResponse();
+
+        if (data != null && data instanceof ModelView mv) {
+            data = mv.getData();
+        }
+
+        if (error == null) {
+            response.setStatus("success");
+            response.setCode(200);
+            response.setData(data);
+            // si data est une liste -> count
+            if (data instanceof java.util.List<?> list) {
+                response.setCount(list.size());
+            }
+        } else {
+            response.setStatus("error");
+            response.setCode(500);
+            response.setData(error.getMessage());
+            response.setCount(null);
+        }
+        return response;
     }
 
 
