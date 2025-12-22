@@ -147,6 +147,18 @@ public class FrontServlet extends HttpServlet {
             java.lang.reflect.Parameter[] params = method.getParameters();
             // Traitement des paramètres
             for (int i = 0; i < params.length; i++) {
+                // Injection de HttpServletRequest si demandé
+                if (types[i] == HttpServletRequest.class) {
+                    args[i] = req;
+                    continue;
+                }
+                
+                // Injection de HttpServletResponse si demandé
+                if (types[i] == HttpServletResponse.class) {
+                    args[i] = resp;
+                    continue;
+                }
+                
                 if (Map.class.isAssignableFrom(types[i])) {
                     Object mapValue = processMapParameter(req, types[i], params[i]);
                     args[i] = mapValue;
@@ -286,6 +298,9 @@ public class FrontServlet extends HttpServlet {
                             part.getContentType(),
                             fileBytes
                         );
+                        
+                        // Injection automatique du ServletContext
+                        fileUpload.setServletContext(req.getServletContext());
                         
                         formMap.put(fieldName, fileUpload);
                     } 
