@@ -4,6 +4,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.Part;
 
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
@@ -12,6 +13,7 @@ import myframework.annotation.GET;
 import myframework.annotation.POST;
 import myframework.annotation.Json;
 import myframework.fw.ModelView;
+import myframework.fw.FileUpload;
 import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
 import myframework.utils.DataBinder;
@@ -23,12 +25,14 @@ import jakarta.servlet.RequestDispatcher;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.List;
+import java.util.Collection;
 
 public class FrontServlet extends HttpServlet {
 
@@ -247,7 +251,7 @@ public class FrontServlet extends HttpServlet {
         return value;
     }
 
-    // Sprint 8 
+    // Sprint 8 + Sprint Upload
     private Object processMapParameter(HttpServletRequest req,
                                    Class<?> type,
                                    java.lang.reflect.Parameter param) {
@@ -259,14 +263,54 @@ public class FrontServlet extends HttpServlet {
             }
             return null;
         }
+        
         Map<String, Object> formMap = new HashMap<>();
-        Map<String, String[]> parameterMap = req.getParameterMap();
-        for (String key : parameterMap.keySet()) {
-            String[] values = parameterMap.get(key);
-            if (values.length == 1) {
-                formMap.put(key, values[0]); 
-            } else {
-                formMap.put(key, List.of(values)); // checkbox ou valeur multiple
+        
+        // Vérifier si c'est une requête multipart (upload de fichiers)
+        String contentType = req.getContentType();
+        if (contentType != null && contentType.toLowerCase().startsWith("multipart/form-data")) {
+            try {
+                Collection<Part> parts = req.getParts();
+                for (Part part : parts) {
+                    String fieldName = part.getName();
+                    
+                    // Si c'est un fichier
+                    if (part.getSubmittedFileName() != null && !part.getSubmittedFileName().isEmpty()) {
+                        InputStream inputStream = part.getInputStream();
+                        byte[] fileBytes = inputStream.readAllBytes();
+                        inputStream.close();
+                        
+                        FileUpload fileUpload = new FileUpload(
+                            fieldName,
+                            part.getSubmittedFileName(),
+                            part.getContentType(),
+                            fileBytes
+                        );
+                        
+                        formMap.put(fieldName, fileUpload);
+                    } 
+                    // Si c'est un champ texte normal
+                    else {
+                        InputStream inputStream = part.getInputStream();
+                        String value = new String(inputStream.readAllBytes());
+                        inputStream.close();
+                        formMap.put(fieldName, value);
+                    }
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Erreur lors du traitement multipart : " + e.getMessage(), e);
+            }
+        } 
+        // Sinon, traitement normal (formulaire classique)
+        else {
+            Map<String, String[]> parameterMap = req.getParameterMap();
+            for (String key : parameterMap.keySet()) {
+                String[] values = parameterMap.get(key);
+                if (values.length == 1) {
+                    formMap.put(key, values[0]); 
+                } else {
+                    formMap.put(key, List.of(values)); // checkbox ou valeur multiple
+                }
             }
         }
 
