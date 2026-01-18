@@ -4,7 +4,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.servlet.http.Part;
+
+import java.util.Enumeration;
 
 import myframework.annotation.MyController;
 import myframework.annotation.MyMapping;
@@ -12,6 +15,7 @@ import myframework.annotation.RequestParam;
 import myframework.annotation.GET;
 import myframework.annotation.POST;
 import myframework.annotation.Json;
+import myframework.annotation.Session;
 import myframework.fw.ModelView;
 import myframework.fw.FileUpload;
 import myframework.utils.ClasseMethod;
@@ -159,11 +163,22 @@ public class FrontServlet extends HttpServlet {
                     continue;
                 }
                 
+                // Injection de la session si annotée @Session
+                if (params[i].isAnnotationPresent(myframework.annotation.Session.class)) {
+                    if (!Map.class.isAssignableFrom(types[i])) {
+                        throw new RuntimeException("@Session ne peut être utilisé que sur un paramètre Map<String, Object>");
+                    }
+                    Map<String, Object> sessionMap = processSessionParameter(req);
+                    args[i] = sessionMap;
+                    continue;
+                }
+                
                 if (Map.class.isAssignableFrom(types[i])) {
                     Object mapValue = processMapParameter(req, types[i], params[i]);
                     args[i] = mapValue;
                     continue;
                 }
+
 
                 if (params[i].isAnnotationPresent(RequestParam.class)) {
                     RequestParam ann = params[i].getAnnotation(RequestParam.class);
@@ -207,6 +222,13 @@ public class FrontServlet extends HttpServlet {
             // appel methode
             try {
                 result = method.invoke(controller, args);
+                
+                // Synchroniser les Maps de session après l'exécution
+                for (int i = 0; i < params.length; i++) {
+                    if (params[i].isAnnotationPresent(myframework.annotation.Session.class)) {
+                        syncSessionMap(req, (Map<String, Object>) args[i]);
+                    }
+                }
             } catch (Exception e) {
                 capturedError = e;
             }
@@ -372,6 +394,56 @@ public class FrontServlet extends HttpServlet {
             response.setCount(null);
         }
         return response;
+    }
+
+    /**
+     * Sprint 11 Session - Traite un paramètre annoté @Session
+     * Crée un Map contenant tous les attributs actuels de la session HTTP
+     */
+    private Map<String, Object> processSessionParameter(HttpServletRequest req) {
+        HttpSession session = req.getSession(true); // Crée la session si elle n'existe pas
+        Map<String, Object> sessionMap = new HashMap<>();
+        
+        // Copier tous les attributs actuels de la session dans le Map
+        Enumeration<String> attributeNames = session.getAttributeNames();
+        while (attributeNames.hasMoreElements()) {
+            String name = attributeNames.nextElement();
+            sessionMap.put(name, session.getAttribute(name));
+        }
+        
+        return sessionMap;
+    }
+
+    /**
+     * Sprint Session - Synchronise le Map de session avec la HttpSession
+     * Appelé après l'exécution de la méthode du contrôleur
+     * 
+     * Cette méthode :
+     * 1. Supprime les attributs qui ont été retirés du Map
+     * 2. Ajoute/met à jour les attributs présents dans le Map
+     */
+    private void syncSessionMap(HttpServletRequest req, Map<String, Object> sessionMap) {
+        HttpSession session = req.getSession(true);
+        
+        // 1. Supprimer les attributs qui ne sont plus dans le Map
+        Enumeration<String> attributeNames = session.getAttributeNames();
+        while (attributeNames.hasMoreElements()) {
+            String name = attributeNames.nextElement();
+            if (!sessionMap.containsKey(name)) {
+                session.removeAttribute(name);
+            }
+        }
+        
+        // 2. Ajouter ou mettre à jour les attributs du Map dans la session
+        for (Map.Entry<String, Object> entry : sessionMap.entrySet()) {
+            if (entry.getValue() == null) {
+                // Si la valeur est null, supprimer l'attribut
+                session.removeAttribute(entry.getKey());
+            } else {
+                // Sinon, ajouter ou mettre à jour
+                session.setAttribute(entry.getKey(), entry.getValue());
+            }
+        }
     }
 
 
