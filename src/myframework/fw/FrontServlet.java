@@ -16,12 +16,16 @@ import myframework.annotation.GET;
 import myframework.annotation.POST;
 import myframework.annotation.Json;
 import myframework.annotation.Session;
+import myframework.annotation.Anonyme;
+import myframework.annotation.Authorized;
+import myframework.annotation.Role;
 import myframework.fw.ModelView;
 import myframework.fw.FileUpload;
 import myframework.utils.ClasseMethod;
 import myframework.utils.Fonction;
 import myframework.utils.DataBinder;
 import myframework.utils.JsonResponse;
+import myframework.utils.SecurityConfig;
 
 
 import jakarta.servlet.RequestDispatcher;
@@ -42,12 +46,17 @@ public class FrontServlet extends HttpServlet {
 
     private final Map<String, ClasseMethod> staticRoutes = new HashMap<>();
     private final Map<String, ClasseMethod> dynamicRoutes = new HashMap<>();
+    private SecurityConfig securityConfig;
 
     // premier scan au demarrage
     @Override
     public void init() throws ServletException {
         super.init();
         System.out.println(" Initialisation du FrontServlet...");
+        
+        // Charger la configuration de sécurité
+        securityConfig = SecurityConfig.getInstance(getServletContext());
+        
         try {
             String classesPath = getServletContext().getRealPath("/WEB-INF/classes");
             File classesDir = new File(classesPath);
@@ -140,6 +149,11 @@ public class FrontServlet extends HttpServlet {
         }
 
         Method method = cm.getMethod();
+        
+        // Vérification de sécurité AVANT l'exécution
+        if (!checkSecurity(method, req, resp)) {
+            return; // Accès refusé, la réponse a déjà été envoyée
+        }
         Class<?> controllerClass = cm.getClazz();
         Object result = null;
         Exception capturedError = null;
@@ -443,6 +457,179 @@ public class FrontServlet extends HttpServlet {
                 // Sinon, ajouter ou mettre à jour
                 session.setAttribute(entry.getKey(), entry.getValue());
             }
+        }
+    }
+
+    /**
+     * Sprint Sécurité - Vérifie les autorisations d'accès à une méthode
+     * 
+     * Logique :
+     * 1. Si @Anonyme → accès autorisé
+     * 2. Si @Authorized → vérifier que l'utilisateur est authentifié
+     * 3. Si @Role(...) → vérifier que l'utilisateur a le bon rôle
+     * 4. Sinon → accès autorisé par défaut (comportement libre)
+     * 
+     * @param method La méthode du contrôleur à exécuter
+     * @param req La requête HTTP
+     * @param resp La réponse HTTP
+     * @return true si l'accès est autorisé, false sinon
+     */
+    private boolean checkSecurity(Method method, HttpServletRequest req, HttpServletResponse resp) 
+            throws IOException, ServletException {
+        
+        // 1. Si @Anonyme → accès libre
+        if (method.isAnnotationPresent(Anonyme.class)) {
+            return true;
+        }
+        
+        HttpSession session = req.getSession(false);
+        String authVar = securityConfig.getAuthVariable();
+        String roleVar = securityConfig.getRoleVariable();
+        
+        // Vérifier si l'utilisateur est authentifié
+        Object userAuth = (session != null) ? session.getAttribute(authVar) : null;
+        boolean isAuthenticated = (userAuth != null);
+        
+        // 2. Si @Authorized → vérifier authentification
+        if (method.isAnnotationPresent(Authorized.class)) {
+            if (!isAuthenticated) {
+                handleUnauthorized(req, resp);
+                return false;
+            }
+            return true; // Authentifié, accès autorisé
+        }
+        
+        // 3. Si @Role(...) → vérifier authentification ET rôle
+        if (method.isAnnotationPresent(Role.class)) {
+            if (!isAuthenticated) {
+                handleUnauthorized(req, resp);
+                return false;
+            }
+            
+            Role roleAnnotation = method.getAnnotation(Role.class);
+            String[] requiredRoles = roleAnnotation.value();
+            
+            // Récupérer le(s) rôle(s) de l'utilisateur depuis la session
+            Object userRoleObj = session.getAttribute(roleVar);
+            
+            if (userRoleObj == null) {
+                handleForbidden(req, resp, "Aucun rôle défini pour cet utilisateur");
+                return false;
+            }
+            
+            // Vérifier si l'utilisateur a l'un des rôles requis
+            boolean hasRole = checkUserRole(userRoleObj, requiredRoles);
+            
+            if (!hasRole) {
+                handleForbidden(req, resp, "Rôle insuffisant. Rôles requis : " + String.join(", ", requiredRoles));
+                return false;
+            }
+            
+            return true; // Authentifié et bon rôle
+        }
+        
+        // 4. Aucune annotation de sécurité → accès libre par défaut
+        return true;
+    }
+    
+    /**
+     * Vérifie si l'utilisateur possède l'un des rôles requis
+     * 
+     * @param userRoleObj Le rôle de l'utilisateur (String, List<String>, ou String[])
+     * @param requiredRoles Les rôles requis
+     * @return true si l'utilisateur a au moins un des rôles requis
+     */
+    private boolean checkUserRole(Object userRoleObj, String[] requiredRoles) {
+        // Cas 1 : Le rôle est une String simple
+        if (userRoleObj instanceof String) {
+            String userRole = (String) userRoleObj;
+            for (String required : requiredRoles) {
+                if (userRole.equalsIgnoreCase(required)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Cas 2 : Le rôle est une List<String>
+        if (userRoleObj instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<String> userRoles = (List<String>) userRoleObj;
+            for (String userRole : userRoles) {
+                for (String required : requiredRoles) {
+                    if (userRole.equalsIgnoreCase(required)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Cas 3 : Le rôle est un String[]
+        if (userRoleObj instanceof String[]) {
+            String[] userRoles = (String[]) userRoleObj;
+            for (String userRole : userRoles) {
+                for (String required : requiredRoles) {
+                    if (userRole.equalsIgnoreCase(required)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Gère l'erreur 401 - Non autorisé (utilisateur non authentifié)
+     */
+    private void handleUnauthorized(HttpServletRequest req, HttpServletResponse resp) 
+            throws IOException, ServletException {
+        
+        String redirect = securityConfig.getRedirectUnauthorized();
+        
+        if (redirect != null && !redirect.isEmpty()) {
+            // Redirection vers une page de login
+            resp.sendRedirect(req.getContextPath() + redirect);
+        } else {
+            // Erreur HTTP 401
+            resp.setContentType("text/html; charset=UTF-8");
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            PrintWriter out = resp.getWriter();
+            out.println("<!DOCTYPE html>");
+            out.println("<html><head><meta charset='UTF-8'><title>401 - Non autorisé</title></head>");
+            out.println("<body style='font-family:Arial; padding:50px; text-align:center;'>");
+            out.println("<h1>🔒 401 - Accès non autorisé</h1>");
+            out.println("<p>Vous devez être connecté pour accéder à cette ressource.</p>");
+            out.println("<p><a href='" + req.getContextPath() + "/login'>Se connecter</a></p>");
+            out.println("</body></html>");
+        }
+    }
+    
+    /**
+     * Gère l'erreur 403 - Interdit (utilisateur authentifié mais rôle insuffisant)
+     */
+    private void handleForbidden(HttpServletRequest req, HttpServletResponse resp, String message) 
+            throws IOException, ServletException {
+        
+        String redirect = securityConfig.getRedirectForbidden();
+        
+        if (redirect != null && !redirect.isEmpty()) {
+            // Redirection vers une page d'erreur
+            resp.sendRedirect(req.getContextPath() + redirect);
+        } else {
+            // Erreur HTTP 403
+            resp.setContentType("text/html; charset=UTF-8");
+            resp.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            PrintWriter out = resp.getWriter();
+            out.println("<!DOCTYPE html>");
+            out.println("<html><head><meta charset='UTF-8'><title>403 - Interdit</title></head>");
+            out.println("<body style='font-family:Arial; padding:50px; text-align:center;'>");
+            out.println("<h1>🚫 403 - Accès interdit</h1>");
+            out.println("<p>" + message + "</p>");
+            out.println("<p><a href='" + req.getContextPath() + "/'>Retour à l'accueil</a></p>");
+            out.println("</body></html>");
         }
     }
 
